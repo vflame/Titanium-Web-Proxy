@@ -350,11 +350,23 @@ namespace Titanium.Web.Proxy
         /// </summary>
         public event AsyncEventHandler<SessionEventArgs>? BeforeRequest;
 
+#if DEBUG
+        /// <summary>
+        ///     Intercept request body send event to server. 
+        /// </summary>
+        public event AsyncEventHandler<BeforeBodyWriteEventArgs>? OnRequestBodyWrite;
+#endif
         /// <summary>
         ///     Intercept response event from server.
         /// </summary>
         public event AsyncEventHandler<SessionEventArgs>? BeforeResponse;
 
+#if DEBUG
+        /// <summary>
+        ///     Intercept request body send event to client. 
+        /// </summary>
+        public event AsyncEventHandler<BeforeBodyWriteEventArgs>? OnResponseBodyWrite;
+#endif
         /// <summary>
         ///     Intercept after response event from server.
         /// </summary>
@@ -765,8 +777,19 @@ namespace Titanium.Web.Proxy
                 });
             }
 
-            // Get the listener that handles the client request.
-            endPoint.Listener!.BeginAcceptSocket(onAcceptConnection, endPoint);
+            try
+            {
+                // based on end point type call appropriate request handlers
+                // Get the listener that handles the client request.
+                endPoint.Listener!.BeginAcceptSocket(onAcceptConnection, endPoint);
+            }
+            catch (Exception ex) when (ex is ObjectDisposedException || ex is InvalidOperationException)
+            {
+                // The listener was Stop()'d, disposing the underlying socket and
+                // triggering the completion of the callback. We're already exiting,
+                // so just return.
+                return;
+            }
         }
 
 
@@ -908,11 +931,17 @@ namespace Titanium.Web.Proxy
             return new RetryPolicy<T>(retries, tcpConnectionFactory);
         }
 
-        /// <summary>
-        ///     Dispose the Proxy instance.
-        /// </summary>
-        public void Dispose()
+        private bool disposed = false;
+
+        protected virtual void Dispose(bool disposing)
         {
+            if (disposed)
+            {
+                return;
+            }
+
+            disposed = true;
+
             if (ProxyRunning)
             {
                 Stop();
@@ -920,6 +949,17 @@ namespace Titanium.Web.Proxy
 
             CertificateManager?.Dispose();
             BufferPool?.Dispose();
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        ~ProxyServer()
+        {
+            Dispose(false);
         }
     }
 }
